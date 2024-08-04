@@ -18,7 +18,7 @@ Before we begin, make sure you have the following:
 
 Here's the Dockerfile that we'll be using to create our ARM image:
 
-```js:tailwind.config.js
+```js:Dockerfile
 # Use an ARM64 base image for Ubuntu 20.04
 FROM arm64v8/ubuntu:20.04
 
@@ -65,7 +65,7 @@ CMD ["mvn", "--version"]
 
 ```
 
-```js:tailwind.config.js
+```js:mvn-entrypoint.sh
 #! /bin/sh -eu
 
 # Copy files from /usr/share/maven/ref into ${MAVEN_CONFIG}
