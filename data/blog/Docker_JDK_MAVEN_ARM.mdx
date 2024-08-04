@@ -1,0 +1,162 @@
+---
+title:  Building and Pushing an ARM Image for Ubuntu server to Docker Hub
+date: '2024-08-04'
+tags: ['ubuntu', 'arm', 'docker']
+draft: false
+summary: With the rise of ARM architecture, particularly in devices like the Raspberry Pi and many modern servers, creating Docker images that support ARM has become increasingly important. In this tutorial, I will walk you through the process of creating a Docker image for ARM architecture using Ubuntu. We will build this image natively on an Ubuntu server and then push it to Docker Hub. This guide will help you leverage ARM-based systems more effectively by creating portable and reusable Docker images.
+---
+
+## Prerequisites
+
+Before we begin, make sure you have the following:
+
+- An Ubuntu server (or any other Linux server)
+- Docker installed on the server
+- Docker Hub account
+
+## Dockerfile
+
+Here's the Dockerfile that we'll be using to create our ARM image:
+
+```js:tailwind.config.js
+# Use an ARM64 base image for Ubuntu 20.04
+FROM arm64v8/ubuntu:20.04
+
+# Set environment variables for non-interactive installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Set the timezone to avoid tzdata prompt during installation
+ENV TZ=America/New_York
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Set the environment variables for the Maven version and directories
+ARG MAVEN_VERSION=3.8.1
+ARG USER_HOME_DIR="/root"
+ARG MAVEN_HOME="/usr/share/maven"
+ENV MAVEN_HOME=${MAVEN_HOME}
+ENV MAVEN_CONFIG="${USER_HOME_DIR}/.m2"
+ENV PATH=${MAVEN_HOME}/bin:${PATH}
+
+# Install dependencies: OpenJDK 11, curl, tar, git, and Docker
+RUN apt-get update && \
+    apt-get install -y openjdk-11-jdk curl tar git docker.io tzdata && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Maven
+ARG BASE_URL=https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries
+RUN curl -fsSL ${BASE_URL}/apache-maven-${MAVEN_VERSION}-bin.tar.gz -o /tmp/apache-maven.tar.gz && \
+    mkdir -p ${MAVEN_HOME} && \
+    tar -xzf /tmp/apache-maven.tar.gz -C ${MAVEN_HOME} --strip-components=1 && \
+    rm -f /tmp/apache-maven.tar.gz && \
+    ln -s ${MAVEN_HOME}/bin/mvn /usr/bin/mvn
+
+# Set the working directory
+WORKDIR /workspace
+
+# Copy entrypoint script if needed (optional)
+# COPY mvn-entrypoint.sh /usr/local/bin/mvn-entrypoint.sh
+# RUN chmod +x /usr/local/bin/mvn-entrypoint.sh
+
+# Set the entrypoint for the Docker container (optional, if you have an entrypoint script)
+# ENTRYPOINT ["/usr/local/bin/mvn-entrypoint.sh"]
+
+# Default command to run Maven version
+CMD ["mvn", "--version"]
+
+```
+
+```js:tailwind.config.js
+#! /bin/sh -eu
+
+# Copy files from /usr/share/maven/ref into ${MAVEN_CONFIG}
+# So the initial ~/.m2 is set with expected content.
+# Don't override, as this is just a reference setup
+
+copy_reference_files() {
+  local log="$MAVEN_CONFIG/copy_reference_file.log"
+  local ref="/usr/share/maven/ref"
+
+  if mkdir -p "${MAVEN_CONFIG}/repository" && touch "${log}" > /dev/null 2>&1 ; then
+      cd "${ref}"
+      local reflink=""
+      if cp --help 2>&1 | grep -q reflink ; then
+          reflink="--reflink=auto"
+      fi
+      if [ -n "$(find "${MAVEN_CONFIG}/repository" -maxdepth 0 -type d -empty 2>/dev/null)" ] ; then
+          # destination is empty...
+          echo "--- Copying all files to ${MAVEN_CONFIG} at $(date)" >> "${log}"
+          cp -rv ${reflink} . "${MAVEN_CONFIG}" >> "${log}"
+      else
+          # destination is non-empty, copy file-by-file
+          echo "--- Copying individual files to ${MAVEN_CONFIG} at $(date)" >> "${log}"
+          find . -type f -exec sh -eu -c '
+              log="${1}"
+              shift
+              reflink="${1}"
+              shift
+              for f in "$@" ; do
+                  if [ ! -e "${MAVEN_CONFIG}/${f}" ] || [ -e "${f}.override}" ] ; then
+                      mkdir -p "${MAVEN_CONFIG}/$(dirname "${f}")"
+                      cp -rv ${reflink} "${f}" "${MAVEN_CONFIG}/${f}" >> "${log}"
+                  fi
+              done
+          ' _ "${log}" "${reflink}" {} +
+      fi
+      echo >> "${log}"
+  else
+    echo "Cannot write to ${log}. Wrong volume permissions? Carrying on ..."
+  fi
+}
+
+owd="$(pwd)"
+copy_reference_files
+unset MAVEN_CONFIG
+
+cd "${owd}"
+unset owd
+
+exec "$@"
+
+```
+
+## Steps to Build and Push the Image
+
+Before you begin, make sure both mvn-entrypoint.sh and Dockerfile are in the same directory.
+
+
+- 1. Build the Docker Image
+First, navigate to the directory containing your Dockerfile and build the Docker image using the following command:
+
+```bash
+docker build -t your-dockerhub-username/ubuntu-arm:latest .
+```
+- 2. Tag the Docker Image
+Tag the Docker image with your Docker Hub repository name:
+```
+docker tag your-dockerhub-username/ubuntu-arm:latest your-dockerhub-username/ubuntu-arm:1.0
+```
+
+- 3. Log in to your Docker Hub account:
+
+```
+docker login
+```
+
+- 4. Push the Docker image to Docker Hub:
+
+```
+docker push your-dockerhub-username/ubuntu-arm:1.0
+
+```
+- 5. Verify the Docker Image
+  
+You can verify that the Docker image has been pushed to Docker Hub by visiting your Docker Hub repository.
+
+```
+docker pull your-dockerhub-username/ubuntu-arm:1.0
+```
+
+## Conclusion
+
+That's it! You have successfully created an ARM image for Ubuntu, built it on an Ubuntu server, and pushed it to Docker Hub. This process can be extremely useful for deploying applications on ARM-based devices. Feel free to reach out if you have any questions or need further assistance.
+
